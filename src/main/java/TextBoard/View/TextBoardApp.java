@@ -1,25 +1,34 @@
 
-package TextBoard;
+package TextBoard.View;
 
-import netscape.javascript.JSObject;
-
+import TextBoard.INI.*;
+import TextBoard.Model.*;
+import TextBoard.Controller.*;
 import java.time.LocalDateTime;
-
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Objects;
 import java.util.Scanner;
 
-public class TextBoard {
-    static Scanner scan = new Scanner(System.in);
-    static Login login = new Login(false);
-    static String title = "";
-    static String body = "";
-    static  DB_Connect db = new DB_Connect();
+public class TextBoardApp {
 
-    public static void main(String[] args) {
+    private static final TextBoardApp instance = new TextBoardApp();
+
+    public static TextBoardApp getInstance()
+    {
+        return instance;
+    }
+
+    Scanner scan = new Scanner(System.in);
+    Login login = new Login(false);
+    String title = "";
+    String body = "";
+    SQLDataBase db = new SQLDataBase();
+
+    TextBoardCtrl ctrl;
+
+    public void start()
+    {
+        ctrl = TextBoardCtrl.getInstance();
         String menu = "";
-
 
         var idx = -1;
 
@@ -28,7 +37,7 @@ public class TextBoard {
             if(login.isStatus())
             {
                 System.out.print("["+login.getId()+"(" +
-                        db.select("Select NICKNAME from member where ID = " + login.getId(), 1).get(0)[0]  + ")" + "]");
+                        ctrl.NotifyData(INI.CD_DOC, "Select NICKNAME from member where ID = " + login.getId()).getData() + ")" + "]");
             }
 
             System.out.println(" (signup : 회원가입, login : 로그인, add : 게시글 추가, list : 게시글 조회, update : 게시글 수정, delete : 게시글 삭제, exit : 프로그램 종료)");
@@ -51,7 +60,7 @@ public class TextBoard {
                 case "add" -> {
                     add();
                 } case "list" -> {
-                    list(false, -1);
+                    listAll();
                 }
                 case "update" -> {
                     if (!loginStatus() || isEmpty())
@@ -95,14 +104,7 @@ public class TextBoard {
                     }
                     System.out.println("검색 키워드를 입력해주세요. :");
                     String str = scan.nextLine();
-                    boolean res = false;
-                    var data = db.select("SELECT num FROM article WHERE title LIKE '%" + str + "%'", 1);
-                    if (!data.isEmpty()) {
-                        list(false, Integer.valueOf(data.get(0)[0]));
-                    }
-                    else {
-                        System.out.println("검색 결과가 없습니다.");
-                    }
+                    // 재구현 필요
                 }
                 case "exid" -> {
                 }
@@ -111,10 +113,9 @@ public class TextBoard {
         }
 
         System.out.println("프로그램을 종료합니다.");
-
     }
 
-    public static void signup()
+    public void signup()
     {
         System.out.println("==== 회원 가입을 진행합니다 ===");
         while (true)
@@ -127,7 +128,7 @@ public class TextBoard {
             String pw;
             String name;
 
-            if(db.select("SELECT ID FROM MEMBER WHERE ID = '" + id + "'", 1) == null)
+            if(ctrl.NotifyData(INI.CD_DOC, "SELECT ID FROM MEMBER WHERE ID = '" + id + "'") == null)
             {
                 System.out.println("사용할 수 있는 ID 입니다.");
 
@@ -137,12 +138,11 @@ public class TextBoard {
                 System.out.println("닉네임을 입력해 주세요.");
                 name =  scan.nextLine();
 
-                ArrayList<Datas> arr = new ArrayList<Datas>();
-                arr.add(new Datas(id));
-                arr.add(new Datas(pw));
-                arr.add(new Datas(name));
-
-                db.insert("MEMBER", arr);
+                ArrayList<DataObject> arr = new ArrayList<DataObject>();
+                arr.add(new DataObject(id));
+                arr.add(new DataObject(pw));
+                arr.add(new DataObject(name));
+                ctrl.Modify(INI.CD_DOC,INI.DT_MEMBER, INI.QC_INSERT, arr);
 
                 //DataCenter.SetMember(id, new Member(pw, name));
                 System.out.println("==== 회원 가입이 완료되었습니다. ===");
@@ -154,19 +154,19 @@ public class TextBoard {
         }
     }
 
-    public static void login()
+    public void login()
     {
         System.out.println("ID를 입력해 주세요.");
         String id = scan.nextLine();
         System.out.println("PW를 입력해 주세요.");
         String pw = scan.nextLine();
-        var data = db.select("SELECT ID, PW, NICKNAME FROM MEMBER WHERE ID = '" + id + "'", 3);
-        if(data != null)
+        var member = ctrl.NotifyDatas(INI.CD_DOC, "SELECT * FROM MEMBER WHERE ID = '" + id + "'", INI.MC_END);
+        if(member != null)
         {
-            if(data.get(0)[1].equals(pw))
+            if(member[INI.MC_PW].getData().equals(pw))
             {
                 login.login(id);
-                System.out.println(data.get(0)[2] + "님 환영합니다.");
+                System.out.println(member[INI.MC_NICKNAME].getData() + "님 환영합니다.");
             }
         }
         else{
@@ -174,7 +174,7 @@ public class TextBoard {
         }
     }
 
-    public static boolean loginStatus()
+    public boolean loginStatus()
     {
         if(!login.isStatus())
         {
@@ -184,7 +184,7 @@ public class TextBoard {
         return true;
     }
 
-    public static void logout()
+    public void logout()
     {
         if(!loginStatus())
         {
@@ -195,17 +195,18 @@ public class TextBoard {
         System.out.println("로그아웃 되었습니다.");
     }
 
-    public static boolean idCompair(int idx)
+    public boolean idCompair(int idx)
     {
-        if(DataCenter.getNews(idx).getId().equals(login.getId()))
+        var count = ctrl.NotifyData(INI.CD_DOC, "SELECT COUNT(ID) FROM article WHERE num = " + idx).getData();
+        if(!count.equals("0"))
         {
             return true;
         }
-        System.out.println(DataCenter.getMember(login.getId()).getName() + "님이 쓴 글이 아닙니다.");
+        System.out.println("본인이 쓴 글이 아닙니다.");
         return  false;
     }
 
-    public static void add() {
+    public void add() {
         if(!loginStatus())
         {
             return;
@@ -215,69 +216,67 @@ public class TextBoard {
         title = scan.nextLine();
         System.out.println("내용을 입력해 주세요. : ");
         body = scan.nextLine();
-        ArrayList<Datas> datas = new ArrayList<Datas>();
-        datas.add(new Datas(null));
-        datas.add(new Datas(login.getId()));
-        datas.add(new Datas(title));
-        datas.add(new Datas(body));
-        datas.add(new Datas(LocalDateTime.now()));
-        datas.add(new Datas(0));
-        datas.add(new Datas(0));
-        if (db.insert("article", datas)) {
+        ArrayList<DataObject> datas = new ArrayList<DataObject>();
+        datas.add(new DataObject(null));
+        datas.add(new DataObject(login.getId()));
+        datas.add(new DataObject(title));
+        datas.add(new DataObject(body));
+        datas.add(new DataObject(LocalDateTime.now()));
+        datas.add(new DataObject(0));
+        datas.add(new DataObject(0));
+        if (db.InsertDB("article", datas)) {
             System.out.println("게시물이 추가 되었습니다.");
         }
     }
 
-    public static void list(Boolean detail, int num) {
-
-        if(detail)
-        {
-            var data = db.select("SELECT * from article where NUM = " + num, 7);
-
+    public void listAll() {
+        var articles = ctrl.NotifyDatasArray(INI.CD_DOC, "SELECT * FROM article", INI.AC_END);
+        for (int i = 0; i < articles.size(); i++) {
             System.out.println("=============================");
-            System.out.printf("번호 : %s \n", data.get(0)[0]);
-            System.out.printf("제목 : %s \n", data.get(0)[1]);
-            System.out.printf("내용 : %s \n", data.get(0)[2]);
-            System.out.printf("등록시간 : %s \n", data.get(0)[3]);
-            System.out.printf("조회수 : %s \n", data.get(0)[4]);
-            System.out.printf("추천수 : %s \n", data.get(0)[5]);
+            System.out.printf("번호 : %s \n", articles.get(i)[INI.AC_NUM].getData());
+            System.out.printf("제목 : %s \n", articles.get(i)[INI.AC_TITLE].getData());
 
-            var comm = db.select("SELECT * FROM comments", 3);
-            if(comm.size() != 0)
-            {
-                for(int i = 0; i<comm.size(); i++)
-                {
-                    if(comm.get(i)[0].equals(String.valueOf(num)))
-                    {
-                        System.out.println("=============================");
-                        System.out.println("댓글 내용 : " + comm.get(i)[1]);
-                        System.out.println("댓글 작성일 : " + comm.get(i)[2]);
-                    }
-                }
-            }
         }
-        else if(num != -1)
-        {
-            var data = db.select("select NUM, TITLE from article where NUM = " + num, 2);
-            System.out.println("=============================");
-            System.out.printf("번호 : %s \n", data.get(0)[0]);
-            System.out.printf("제목 : %s \n", data.get(0)[1]);
-        }
-        else {
-            var data = db.select("SELECT NUM, TITLE FROM article", 2);
-            for (int i = 0; i < data.size(); i++) {
-                System.out.println("=============================");
-                System.out.printf("번호 : %s \n", data.get(i)[0]);
-                System.out.printf("제목 : %s \n", data.get(i)[1]);
-            }
-        }
-
         System.out.println("=============================");
     }
 
-    public static boolean isEmpty()
+    public void list(boolean detail, int num)
     {
-        if(db.select("SELECT * FROM article", 1).isEmpty())
+        var article = ctrl.NotifyDatas(INI.CD_DOC, "Select * from article where NUM = " + num, INI.AC_END);
+        if(detail)
+        {
+            System.out.println("=============================");
+
+            System.out.printf("번호 : %s \n", article[INI.AC_NUM].getData());
+            System.out.printf("제목 : %s \n", article[INI.AC_TITLE].getData());
+            System.out.printf("내용 : %s \n", article[INI.AC_CONTENT].getData());
+            System.out.printf("등록시간 : %s \n", article[INI.AC_ADD_TIME].getData());
+            System.out.printf("조회수 : %s \n", article[INI.AC_VIEWNUM].getData());
+            System.out.printf("추천수 : %s \n", article[INI.AC_GOOD].getData());
+
+            var comms = ctrl.NotifyDatasArray(INI.CD_DOC, "Select * from comments where ARTICLE_NUM =" + num, INI.CC_END);
+            if(comms.size() != 0)
+            {
+                for(int i = 0; i<comms.size(); i++)
+                {
+                    System.out.println("=============================");
+                    System.out.println("댓글 내용 : " + comms.get(i)[INI.CC_CONTENT].getData());
+                    System.out.println("댓글 작성일 : " + comms.get(i)[INI.CC_ADD_TIME].getData());
+                }
+            }
+        }
+        else
+        {
+            System.out.println("=============================");
+            System.out.printf("번호 : %s \n", article[INI.AC_NUM].getData());
+            System.out.printf("제목 : %s \n", article[INI.AC_TITLE].getData());
+        }
+    }
+
+    public boolean isEmpty()
+    {
+        var count = ctrl.NotifyData(INI.CD_DOC, "SELECT COUNT(*) FROM article").getData();
+        if(count.equals("0"))
         {
             System.out.println("등록된 게시글이 없습니다.");
             return true;
@@ -285,10 +284,12 @@ public class TextBoard {
         return false;
     }
 
-    public static boolean findNewsIDX(int idx) {
+    public boolean findNewsIDX(int idx) {
         if(!isEmpty())
         {
-            if (!db.select("SELECT * from article where NUM = " + idx, 1).isEmpty()) {
+            var count = ctrl.NotifyData(INI.CD_DOC, "SELECT COUNT(*) FROM article").getData();
+            if(!count.equals("0"))
+            {
                 return true;
             }
             System.out.println("없는 게시글 번호 입니다.");
@@ -296,7 +297,7 @@ public class TextBoard {
         return false;
     }
 
-    public static void update(int idx) {
+    public void update(int idx) {
         if(!idCompair(idx))
         {
             System.out.println("본인이 쓴 글만 수정할 수 있습니다.");
@@ -309,35 +310,37 @@ public class TextBoard {
             System.out.println("내용을 입력해 주세요. : ");
             body = scan.nextLine();
 
-            if(DataCenter.UpdateNews(idx, title,body))
-            {
-                System.out.println("게시글이 수정되었습니다.");
-            }
-            else {
-                System.out.println("게시글 수정에서 에러가 발생했습니다.");
-            }
+            // 재구현 필요
+//            if(SQLParser.UpdateNews(idx, title,body))
+//            {
+//                System.out.println("게시글이 수정되었습니다.");
+//            }
+//            else {
+//                System.out.println("게시글 수정에서 에러가 발생했습니다.");
+//            }
         }
     }
 
-    public static void delete(int idx) {
+    public void delete(int idx) {
 
-        if(!idCompair(idx))
-        {
-            System.out.println("본인이 쓴 글만 삭제할 수 있습니다.");
-            return;
-        }
-
-        if (findNewsIDX(idx)) {
-            try {
-                DataCenter.removeNews(idx);
-            } catch (Exception e) {
-                System.out.println("게시글 삭제에서 에러가 발생했습니다.");
-            }
-            System.out.println("게시글이 삭제되었습니다.");
-        }
+        // 재구현 필요
+//        if(!idCompair(idx))
+//        {
+//            System.out.println("본인이 쓴 글만 삭제할 수 있습니다.");
+//            return;
+//        }
+//
+//        if (findNewsIDX(idx)) {
+//            try {
+//                SQLParser.removeNews(idx);
+//            } catch (Exception e) {
+//                System.out.println("게시글 삭제에서 에러가 발생했습니다.");
+//            }
+//            System.out.println("게시글이 삭제되었습니다.");
+//        }
     }
 
-    public static void detail(int idx)
+    public void detail(int idx)
     {
         if(findNewsIDX(idx))
         {
@@ -363,7 +366,7 @@ public class TextBoard {
     }
 
 
-    public static int detailMenu(int idx, int menu_idx)
+    public int detailMenu(int idx, int menu_idx)
     {
         switch (menu_idx) {
             case 1 -> {
@@ -374,19 +377,20 @@ public class TextBoard {
 
                 System.out.println("댓글 내용 : ");
                 body = scan.nextLine();
-                ArrayList<Datas> datas = new ArrayList<Datas>();
-                datas.add(new Datas(idx));
-                datas.add(new Datas(body));
-                datas.add(new Datas(LocalDateTime.now()));
-                db.insert("comments", datas);
+                ArrayList<DataObject> datas = new ArrayList<DataObject>();
+                datas.add(new DataObject(idx));
+                datas.add(new DataObject(body));
+                datas.add(new DataObject(LocalDateTime.now()));
+                db.InsertDB("comments", datas);
             }
             case 2 ->
             {
-                if(!loginStatus())
-                {
-                    return 0;
-                }
-                DataCenter.getNews(idx).GoodPush();
+                // 재구현 필요
+//                if(!loginStatus())
+//                {
+//                    return 0;
+//                }
+//                SQLParser.getNews(idx).GoodPush();
             }
             case 3 -> {
                 if(!loginStatus())
